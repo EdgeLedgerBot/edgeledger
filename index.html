@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EdgeLedger — MLB Board</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1a1d21; --muted:#5c6470; --line:#dde1e7;
+    --accent:#0b6e4f; --bad:#b3261e; --warn:#9a6a00; --chip:#eef1f4;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#121417; --card:#1b1e23; --ink:#e8eaed; --muted:#9aa3ad; --line:#2c3138;
+      --accent:#3ecf8e; --bad:#ff7a72; --warn:#ffcf5c; --chip:#24282e; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45}
+  main{max-width:980px;margin:0 auto;padding:20px 16px 48px}
+  h1{font-size:26px;margin:4px 0 2px}
+  h2{font-size:19px;margin:0 0 10px}
+  .sub{color:var(--muted);margin:0 0 16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:0 0 16px}
+  .strip{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:14px;color:var(--muted)}
+  .strip b{color:var(--ink)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--chip);font-size:12px}
+  .pill.armed{color:var(--accent)} .pill.tripped{color:var(--bad)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;white-space:nowrap}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .trade{color:var(--accent);font-weight:700}
+  .notrade{color:var(--bad);font-weight:700}
+  .empty{color:var(--muted);font-style:italic;padding:10px 2px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px 16px}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+  input[type=number]{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-size:15px}
+  .checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:6px 16px;margin-top:10px}
+  .checks label{display:flex;gap:8px;align-items:center;color:var(--ink);font-size:14px;margin:0}
+  .verdict{border-radius:10px;padding:12px 14px;font-weight:700;margin:14px 0 6px}
+  .verdict.go{background:rgba(11,110,79,.12);color:var(--accent)}
+  .verdict.stop{background:rgba(179,38,30,.10);color:var(--bad)}
+  .small{font-size:13px;color:var(--muted)}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  ul{margin:6px 0 6px 18px;padding:0}
+  li{margin:3px 0}
+  .pos{color:var(--accent)} .neg{color:var(--bad)}
+</style>
+</head>
+<body>
+<main>
+  <h1>EdgeLedger</h1>
+  <p class="sub">MLB board — Kalshi KXMLBGAME moneyline — what the bot picked, and how the picks did. Picks, prices, and percentages only; bet amounts are never published.</p>
+
+  <section class="card">
+    <div class="strip" id="meta-strip">
+      <span>Snapshot: <b id="m-age">loading…</b></span>
+      <span>Kill switch: <b id="m-kill">—</b></span>
+      <span>Config: <b class="mono" id="m-config">—</b></span>
+      <span>Bot: <b id="m-bot">—</b></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Today's board</h2>
+    <div id="board-wrap"><p class="empty">Loading…</p></div>
+  </section>
+
+  <section class="card">
+    <h2>Open positions</h2>
+    <div id="positions-wrap"><p class="empty">Loading…</p></div>
+  </section>
+
+  <section class="card">
+    <h2>Record</h2>
+    <div id="record-wrap"><p class="empty">Loading…</p></div>
+  </section>
+
+  <section class="card">
+    <h2>Decision calculator</h2>
+    <p class="small">The bot's gate chain, run by hand. Type a model probability and the current Kalshi ask — every gate, the verdict, and the stake update live.</p>
+    <div class="grid">
+      <div><label for="in-p">Model probability (%)</label><input type="number" id="in-p" min="1" max="99" step="0.1" value="62"></div>
+      <div><label for="in-ask">Kalshi ask (cents)</label><input type="number" id="in-ask" min="1" max="99" step="1" value="54"></div>
+      <div><label for="in-spread">Spread (cents)</label><input type="number" id="in-spread" min="0" max="99" step="0.5" value="2"></div>
+      <div><label for="in-bank">Bankroll ($)</label><input type="number" id="in-bank" min="0" step="100" value="10000"></div>
+      <div><label for="in-conc">Concurrent MLB positions</label><input type="number" id="in-conc" min="1" max="50" step="1" value="1"></div>
+    </div>
+    <div class="checks" id="checks">
+      <label><input type="checkbox" data-gate checked> Confirmed starter</label>
+      <label><input type="checkbox" data-gate checked> Recent bullpen use checked</label>
+      <label><input type="checkbox" data-gate checked> Lineup confirmed</label>
+      <label><input type="checkbox" data-gate checked> Injuries checked</label>
+      <label><input type="checkbox" data-gate checked> Park factors applied</label>
+      <label><input type="checkbox" data-gate checked> Current price verified</label>
+      <label><input type="checkbox" data-gate checked> Resolution rules read</label>
+      <label><input type="checkbox" data-gate checked> Order book checked</label>
+    </div>
+    <div class="verdict stop" id="verdict">—</div>
+    <div id="calc-detail"></div>
+  </section>
+
+  <section class="card">
+    <h2>The strategy in brief</h2>
+    <ul>
+      <li><b>Scope:</b> Kalshi KXMLBGAME moneyline only. No NRFI, first-five, props, totals, or run lines.</li>
+      <li><b>Model:</b> Elo baseline with a GameScore blend — team Elo 35%, starter 30%, bullpen 15%, lineup 10%, park 5%, rest and travel 5%. Logistic conversion, isotonic calibration (Platt fallback), minimum 1,000 games of history.</li>
+      <li><b>Edge:</b> calibrated model probability minus the executable Kalshi ask. Required edge is the tier minimum or the fee estimate plus a 2-point uncertainty buffer, whichever is larger. Tiers by model probability: C (52 to under 60) needs 7 points, A (60 to under 75) needs 5, B (75 to 88) needs 4. A price below 50 cents adds 2.5 points. Edge above 18 points is rejected as suspicious — except a price of 45 cents or less, which instead requires a 20-point edge.</li>
+      <li><b>Fees:</b> estimated at 0.07 × price × (1 − price) per contract. After fees, a gross edge needs about 5.6% at 20 cents, 3.5% at 50 cents, and 1.4% at 80 cents just to break even.</li>
+      <li><b>Sizing:</b> quarter Kelly, tier position caps of 5% / 4% / 3% of bankroll, square-root haircut for concurrent positions, no averaging down, manual kill switch.</li>
+      <li><b>Guards:</b> model probability must sit between 52% and 88%; spread at most 4 cents or 6%; starter, bullpen, lineup, injuries, park, current price, resolution rules, and order book all confirmed first.</li>
+    </ul>
+    <p class="small">Known open items: the config's 5/4/3 percent tier caps conflict with desk knob sheets recording 9.13/7.30/5.48 percent — which authority the live bot runs is unresolved, and the config hash above is how we will know. The trade journal's MLB entries are not yet reconciled against settlements, so the settled record is unknown — not zero.</p>
+    <p class="small">This page is a calculator and display board only. It places no orders and connects to no trading account.</p>
+  </section>
+</main>
+
+<script>
+"use strict";
+/* Snapshot sources, tried in order. Replace EdgeLedgerBot with the account
+   that owns the repo once it exists. */
+const SNAPSHOT_SOURCES = [
+  "data/mlb-snapshot.json",
+  "https://raw.githubusercontent.com/EdgeLedgerBot/edgeledger/main/data/mlb-snapshot.json",
+  "https://cdn.jsdelivr.net/gh/EdgeLedgerBot/edgeledger@main/data/mlb-snapshot.json"
+];
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pct = (x, d=1) => (x == null || isNaN(x)) ? "—" : (x*100).toFixed(d) + "%";
+const pts = (x, d=1) => (x == null || isNaN(x)) ? "—" : (x*100).toFixed(d);
+
+function ageText(iso){
+  if(!iso) return "no snapshot yet";
+  const t = Date.parse(iso); if(isNaN(t)) return "unknown time";
+  const mins = Math.max(0, Math.round((Date.now()-t)/60000));
+  if(mins < 1) return "just now";
+  if(mins < 60) return mins + " min ago";
+  const h = Math.floor(mins/60);
+  return h + "h " + (mins%60) + "m ago";
+}
+
+function renderSnapshot(s){
+  const meta = s.meta || {};
+  $("m-age").textContent = meta.generated_at ? (new Date(meta.generated_at).toLocaleString() + " (" + ageText(meta.generated_at) + ")") : "awaiting first Hermes snapshot";
+  const ks = meta.kill_switch || "—";
+  $("m-kill").innerHTML = '<span class="pill ' + esc(ks) + '">' + esc(ks) + "</span>";
+  $("m-config").textContent = meta.config_sha256 ? meta.config_sha256.slice(0,8) : "—";
+  $("m-bot").textContent = meta.bot_version || "—";
+
+  const board = Array.isArray(s.board) ? s.board : [];
+  if(!board.length){
+    $("board-wrap").innerHTML = '<p class="empty">No games evaluated in the latest snapshot.</p>';
+  } else {
+    let h = '<table><tr><th>Game</th><th>Pick</th><th class="num">Model</th><th class="num">Ask</th><th class="num">Edge</th><th class="num">Req.</th><th>Tier</th><th>Verdict</th></tr>';
+    for(const r of board){
+      const v = r.verdict === "trade" ? '<span class="trade">TRADE</span>' : '<span class="notrade">NO TRADE</span>' + (r.blocking_gate ? '<br><span class="small">' + esc(r.blocking_gate) + "</span>" : "");
+      h += "<tr><td>" + esc(r.game) + '<br><span class="small">' + esc(r.kalshi_ticker || "") + "</span></td><td>" + esc(r.side || "") +
+        '</td><td class="num">' + pct(r.model_probability) + '</td><td class="num">' + (r.kalshi_ask_cents ?? "—") + '¢</td><td class="num">' +
+        pts(r.edge_points) + '</td><td class="num">' + pts(r.required_edge_points) + "</td><td>" + esc(r.tier || "") + "</td><td>" + v + "</td></tr>";
+    }
+    $("board-wrap").innerHTML = h + "</table>";
+  }
+
+  const pos = Array.isArray(s.positions) ? s.positions : [];
+  if(!pos.length){
+    $("positions-wrap").innerHTML = '<p class="empty">No open positions in the latest snapshot.</p>';
+  } else {
+    let h = '<table><tr><th>Game</th><th>Side</th><th class="num">Entry</th><th class="num">Current</th><th class="num">Move</th><th>Opened</th></tr>';
+    for(const r of pos){
+      const mv = (r.current_price_cents != null && r.entry_price_cents != null) ? (r.current_price_cents - r.entry_price_cents) : null;
+      const mvTxt = mv == null ? "—" : '<span class="' + (mv >= 0 ? "pos" : "neg") + '">' + (mv >= 0 ? "+" : "") + mv + "¢</span>";
+      h += "<tr><td>" + esc(r.game) + '<br><span class="small">' + esc(r.kalshi_ticker || "") + "</span></td><td>" + esc(r.side || "") +
+        '</td><td class="num">' + (r.entry_price_cents ?? "—") + '¢</td><td class="num">' + (r.current_price_cents ?? "—") + '¢</td><td class="num">' +
+        mvTxt + "</td><td>" + (r.opened_at ? new Date(r.opened_at).toLocaleString() : "—") + "</td></tr>";
+    }
+    $("positions-wrap").innerHTML = h + "</table>";
+  }
+
+  const rec = s.record || {};
+  const cell = v => v == null ? '<span class="small">Not yet reconciled</span>' : v;
+  $("record-wrap").innerHTML = '<table><tr><th>Settled</th><th>Wins</th><th>Losses</th><th>ROI</th><th>Avg CLV</th></tr><tr><td>' +
+    cell(rec.settled_count) + "</td><td>" + cell(rec.wins) + "</td><td>" + cell(rec.losses) + '</td><td>' +
+    (rec.roi_pct == null ? cell(null) : pct(rec.roi_pct)) + '</td><td>' +
+    (rec.clv_avg_points == null ? cell(null) : pts(rec.clv_avg_points) + " pts") + "</td></tr></table>";
+}
+
+async function loadSnapshot(){
+  for(const url of SNAPSHOT_SOURCES){
+    try{
+      const r = await fetch(url + (url.startsWith("http") ? "?t=" + Date.now() : ""), {cache:"no-store"});
+      if(!r.ok) continue;
+      renderSnapshot(await r.json());
+      return;
+    }catch(e){ /* try next source */ }
+  }
+  $("m-age").textContent = "snapshot not reachable yet";
+  $("board-wrap").innerHTML = '<p class="empty">Awaiting first Hermes snapshot.</p>';
+  $("positions-wrap").innerHTML = '<p class="empty">Awaiting first Hermes snapshot.</p>';
+  $("record-wrap").innerHTML = '<p class="empty">Awaiting first Hermes snapshot.</p>';
+}
+
+/* ---------- Decision calculator: the bot's gate chain ---------- */
+function calc(){
+  const pPct = parseFloat($("in-p").value);
+  const askC = parseFloat($("in-ask").value);
+  const spreadC = parseFloat($("in-spread").value);
+  const bank = parseFloat($("in-bank").value);
+  const conc = Math.max(1, parseInt($("in-conc").value || "1", 10));
+  const gates = [];
+  const bad = (name, detail) => gates.push({name, ok:false, detail});
+  const good = (name, detail) => gates.push({name, ok:true, detail});
+
+  if(isNaN(pPct) || isNaN(askC)){ $("verdict").className = "verdict stop"; $("verdict").textContent = "Enter a model probability and an ask."; $("calc-detail").innerHTML = ""; return; }
+  const p = pPct/100, ask = askC/100;
+
+  // Gate 1: probability range
+  if(p < 0.52) bad("Model probability range (52–88%)", "Model probability " + pPct + "% is below the 52% minimum.");
+  else if(p > 0.88) bad("Model probability range (52–88%)", "Model probability " + pPct + "% is above the 88% maximum.");
+  else good("Model probability range (52–88%)", pPct + "% is inside the allowed range.");
+
+  // Tier
+  let tier = null, tierMin = null;
+  if(p >= 0.52 && p < 0.60){ tier = "C"; tierMin = 7; }
+  else if(p >= 0.60 && p < 0.75){ tier = "A"; tierMin = 5; }
+  else if(p >= 0.75 && p <= 0.88){ tier = "B"; tierMin = 4; }
+
+  // Edge, fee, required edge
+  const edgePts = (p - ask) * 100;
+  const feeC = 0.07 * ask * (1 - ask) * 100; // cents per contract
+  let reqPts = tier ? Math.max(tierMin, feeC + 2) : null;
+  const dog = askC < 50;
+  if(dog && reqPts != null) reqPts += 2.5;
+
+  if(tier){
+    good("Tier " + tier + " minimum edge", "Tier minimum " + tierMin + " pts; fee " + feeC.toFixed(2) + "¢ + 2 pt buffer = " + (feeC + 2).toFixed(2) + " pts" + (dog ? "; dog add-on +2.5 pts" : "") + ". Required: " + reqPts.toFixed(2) + " pts.");
+    if(edgePts >= reqPts) good("Edge vs required", "Edge " + edgePts.toFixed(2) + " pts clears the required " + reqPts.toFixed(2) + " pts.");
+    else bad("Edge vs required", "Edge " + edgePts.toFixed(2) + " pts is below the required " + reqPts.toFixed(2) + " pts.");
+  }
+
+  // Max edge gate / cheap-dog exception
+  if(askC <= 45){
+    if(edgePts >= 20) good("Cheap-dog rule (ask ≤ 45¢)", "Edge " + edgePts.toFixed(2) + " pts meets the 20 pt cheap-dog requirement; the 18 pt cap is waived.");
+    else bad("Cheap-dog rule (ask ≤ 45¢)", "Asks at 45¢ or less require a 20 pt edge; this edge is " + edgePts.toFixed(2) + " pts.");
+  } else if(edgePts > 18){
+    bad("Maximum edge gate (18 pts)", "Edge " + edgePts.toFixed(2) + " pts exceeds the 18 pt maximum — treated as suspicious, not a gift.");
+  } else {
+    good("Maximum edge gate (18 pts)", "Edge " + edgePts.toFixed(2) + " pts is within the 18 pt maximum.");
+  }
+
+  // Spread guard
+  if(!isNaN(spreadC)){
+    if(spreadC > 4) bad("Spread guard (≤ 4¢ and ≤ 6%)", "Spread " + spreadC + "¢ exceeds 4¢.");
+    else if(spreadC > askC * 0.06) bad("Spread guard (≤ 4¢ and ≤ 6%)", "Spread " + spreadC + "¢ exceeds 6% of the " + askC + "¢ ask.");
+    else good("Spread guard (≤ 4¢ and ≤ 6%)", "Spread " + spreadC + "¢ is inside both limits.");
+  }
+
+  // Data confirmations
+  const unchecked = [...document.querySelectorAll("#checks input[data-gate]")].filter(c => !c.checked).map(c => c.parentElement.textContent.trim());
+  if(unchecked.length) bad("Data confirmations", "Unconfirmed: " + unchecked.join("; ") + ".");
+  else good("Data confirmations", "All eight confirmations checked.");
+
+  const firstBad = gates.find(g => !g.ok);
+  let stakeTxt = "";
+  if(!firstBad && tier && !isNaN(bank)){
+    const kelly = (p - ask) / (1 - ask);
+    const capPct = tier === "A" ? 0.05 : tier === "B" ? 0.04 : 0.03;
+    let stake = Math.min(0.25 * kelly * bank, capPct * bank);
+    stake = stake / Math.sqrt(conc);
+    stakeTxt = " Full Kelly " + (kelly*100).toFixed(2) + "%; quarter Kelly, Tier " + tier + " cap " + (capPct*100) + "%, concurrency haircut ÷√" + conc + " → stake $" + stake.toFixed(2) + " (" + (stake/bank*100).toFixed(2) + "% of bankroll).";
+  }
+  const v = $("verdict");
+  if(firstBad){ v.className = "verdict stop"; v.textContent = "NO TRADE — first failing gate: " + firstBad.name; }
+  else { v.className = "verdict go"; v.textContent = "TRADE — all gates pass." + stakeTxt; }
+
+  let h = '<table><tr><th>Gate</th><th>Result</th><th>Detail</th></tr>';
+  for(const g of gates) h += "<tr><td>" + esc(g.name) + '</td><td>' + (g.ok ? '<span class="trade">PASS</span>' : '<span class="notrade">FAIL</span>') + "</td><td>" + esc(g.detail) + "</td></tr>";
+  h += "</table><p class=\"small\">Edge " + edgePts.toFixed(2) + " pts · fee estimate " + feeC.toFixed(2) + "¢ per contract" + (tier ? " · Tier " + tier : "") + ".</p>";
+  $("calc-detail").innerHTML = h;
+}
+
+for(const id of ["in-p","in-ask","in-spread","in-bank","in-conc"]) $(id).addEventListener("input", calc);
+document.querySelectorAll("#checks input").forEach(c => c.addEventListener("change", calc));
+calc();
+loadSnapshot();
+setInterval(loadSnapshot, 5 * 60 * 1000);
+</script>
+</body>
+</html>
